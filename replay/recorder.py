@@ -63,6 +63,8 @@ class EpisodeRecorder:
             ],
             "width": float(world.cfg.width),
             "height": float(world.cfg.height),
+            "floor": float(world.cfg.floor),
+            "ceiling": float(world.cfg.ceiling),
         }
         self._steps = []
         self._total_reward = 0.0
@@ -145,10 +147,10 @@ class EpisodeRecorder:
         compress: bool = True,
     ) -> Path:
         """
-        Save episode to file.
+        Save a completed episode to file.
 
         Args:
-            episode: RecordedEpisode instance. If None, uses last recorded episode.
+            episode: RecordedEpisode instance (required).
             filepath: Optional explicit path. Defaults to output_dir/<episode_id>.json[.gz]
             compress: If True, saves as .json.gz
 

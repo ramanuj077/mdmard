@@ -8,11 +8,8 @@ to record, store, and reload simulation trajectories.
 import gzip
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-
-from envs.physics import AircraftState
+from typing import Any, Dict, List, Union
 
 
 @dataclass

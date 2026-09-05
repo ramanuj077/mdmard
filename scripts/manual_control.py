@@ -9,22 +9,20 @@ This is the single most important debugging tool:
 
 Controls
 --------
-  W  or  UP    : Thrust + maintain pitch
-  A             : Pitch Up   (nose up)
-  D             : Pitch Down (nose down)
-  SPACE         : Glide      (no thrust, no pitch change)
-  S             : Pitch Down (aggressive)
+  W  or  UP    : Thrust (forward acceleration)
+  A             : Gentle Pitch Up   (nose up, with some thrust)
+  D             : Gentle Pitch Down (nose down, with some thrust)
+  E             : Thrust + Full Pitch Up
+  Q             : Thrust + Full Pitch Down
+  S  or  DOWN   : Full Pitch Down (no thrust -- emergency dive)
+  SPACE         : Glide (coast, no input)
   R             : Reset episode (new random spawn + waypoint)
-  Q  or  ESC   : Quit
+  ESC           : Quit
 
 Action Mapping (matches TacticalFlightEnv.action_space)
 ---------------------------------------------------------
-  0: Thrust only
-  1: Pitch Up
-  2: Pitch Down
-  3: Thrust + Pitch Up
-  4: Thrust + Pitch Down
-  5: Glide (no-op)
+  0: Thrust only     1: Pitch Up      2: Pitch Down
+  3: Thrust+Up       4: Thrust+Down   5: Glide (no-op)
 
 What to verify manually
 -----------------------
@@ -54,17 +52,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-import time
-from pathlib import Path
-
-# Add project root to sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 import os
 import math
+from pathlib import Path
 
 # ── Path setup (run from project root or any dir) ────────────────────────────
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from envs.flight_env import TacticalFlightEnv
 from envs.physics import PhysicsConfig
@@ -76,49 +69,64 @@ from rendering.renderer import Renderer
 # Keyboard → Action Mapping
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_action_map():
-    """Return a dict mapping Pygame key → discrete action id."""
-    import pygame
-    return {
-        pygame.K_w:     0,   # Thrust
-        pygame.K_UP:    0,   # Thrust (arrow)
-        pygame.K_a:     1,   # Pitch Up
-        pygame.K_d:     2,   # Pitch Down
-        pygame.K_DOWN:  2,   # Pitch Down (arrow)
-        pygame.K_e:     3,   # Thrust + Pitch Up
-        pygame.K_q:     4,   # Thrust + Pitch Down
-        pygame.K_SPACE: 5,   # Glide (no-op)
-        pygame.K_s:     2,   # Pitch Down (alternative)
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Episode loop
-# ─────────────────────────────────────────────────────────────────────────────
-
-def get_held_action(keys, action_map) -> int:
+def get_held_action(keys) -> int:
     """
-    Read held keys and return the highest-priority matching action.
+    Read held keys and return the matching action.
 
-    Priority: Thrust > Pitch Up > Pitch Down > Glide
+    Priority (highest first):
+      E        → 3  (Thrust + Full Pitch Up)
+      Q        → 4  (Thrust + Full Pitch Down)
+      W+A      → 3  (Thrust + Pitch Up)
+      W+D      → 4  (Thrust + Pitch Down)
+      W / UP   → 0  (Thrust only)
+      A        → 1  (Pitch Up -- but with half thrust for controllability)
+      D / DOWN → 2  (Pitch Down -- with half thrust)
+      S        → 2  (Full Pitch Down, no thrust -- emergency dive)
+      nothing  → 5  (Glide)
+
+    Design note: pure pitch-only actions (action 1, 2) apply maximum elevator
+    with ZERO thrust. At 30 FPS with dt=0.05 and pitch_torque/inertia=50,
+    this rotates the aircraft ~2.5 rad/s in one second -- extremely aggressive.
+    For human control, A/D map to Thrust+Pitch (action 3/4) with softer feel.
+    Pure pitch-only (action 1/2) is kept for the RL agent but removed from
+    keyboard mapping since it's uncontrollable by humans.
     """
     import pygame
 
-    # Check combined: thrust + pitch
-    thrust = keys[pygame.K_w] or keys[pygame.K_UP]
+    # ── Explicit combo keys first ─────────────────────────────────────────
+    if keys[pygame.K_e]:
+        return 3   # Thrust + Full Pitch Up
+
+    # NOTE: Q is NOT used for quit anymore (ESC only).
+    # Q = Thrust + Pitch Down (action 4)
+    if keys[pygame.K_q]:
+        return 4   # Thrust + Full Pitch Down
+
+    # ── Individual keys ───────────────────────────────────────────────────
+    thrust     = keys[pygame.K_w] or keys[pygame.K_UP]
     pitch_up   = keys[pygame.K_a]
-    pitch_down = keys[pygame.K_d] or keys[pygame.K_DOWN] or keys[pygame.K_s]
+    pitch_down = keys[pygame.K_d] or keys[pygame.K_DOWN]
+    dive       = keys[pygame.K_s]
 
+    # Combined: thrust + pitch
     if thrust and pitch_up:
         return 3   # Thrust + Pitch Up
     if thrust and pitch_down:
         return 4   # Thrust + Pitch Down
     if thrust:
         return 0   # Thrust only
+
+    # A/D alone: map to Thrust + Pitch (actions 3/4) for controllability.
+    # Pure pitch-only (actions 1/2) bleeds speed too fast for human control.
     if pitch_up:
-        return 1   # Pitch Up
+        return 3   # Thrust + Pitch Up (instead of pure pitch-only)
     if pitch_down:
-        return 2   # Pitch Down
+        return 4   # Thrust + Pitch Down (instead of pure pitch-only)
+
+    # S = emergency pure pitch down (no thrust)
+    if dive:
+        return 2   # Pitch Down only
+
     return 5       # Glide (no keys held)
 
 
@@ -154,19 +162,18 @@ def run(args) -> None:
     episode_num = 1
     done = False
 
-    print("\n" + "═" * 60)
-    print("  MDMARD Manual Control  |  Press Q to quit, R to reset")
-    print("═" * 60)
-    print("  W/↑  : Thrust      A : Pitch Up    D : Pitch Down")
-    print("  E    : Thrust+Up   Q : Thrust+Down SPACE : Glide")
-    print("  R    : Reset episode")
-    print("═" * 60 + "\n")
-
-    action_map = build_action_map()
+    print("\n" + "=" * 60)
+    print("  MDMARD Manual Control  |  Press ESC to quit, R to reset")
+    print("=" * 60)
+    print("  W / UP  : Thrust        A : Pitch Up    D : Pitch Down")
+    print("  E       : Thrust+Up     Q : Thrust+Down")
+    print("  S       : Emergency Dive (no thrust)")
+    print("  SPACE   : Glide         R : Reset episode")
+    print("  ESC     : Quit")
+    print("=" * 60 + "\n")
 
     # ── Main loop ─────────────────────────────────────────────────────────
     running = True
-    paused  = False
 
     while running:
         # ── Event handling ────────────────────────────────────────────────
@@ -177,8 +184,8 @@ def run(args) -> None:
 
         keys = pygame.key.get_pressed()
 
-        # Quit
-        if keys[pygame.K_q] or keys[pygame.K_ESCAPE]:
+        # Quit -- ESC only (Q is now Thrust+PitchDown)
+        if keys[pygame.K_ESCAPE]:
             running = False
             break
 
@@ -194,7 +201,7 @@ def run(args) -> None:
 
         # ── Physics step (only if episode not done) ────────────────────────
         if not done:
-            action = get_held_action(keys, action_map)
+            action = get_held_action(keys)
             obs, reward, terminated, truncated, info = env.step(action)
             reward_breakdown = info.get("reward_breakdown", {})
             done = terminated or truncated
