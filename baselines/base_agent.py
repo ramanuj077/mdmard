@@ -89,8 +89,8 @@ class BaseAgent(ABC):
             self.reset()
 
             if metrics_tracker is not None and hasattr(env, "state") and hasattr(env, "world"):
-                wp = env.world.current_waypoint
-                target_pos = (wp.x, wp.y) if wp else None
+                wp = getattr(env.world, "waypoint", getattr(env.world, "current_waypoint", None))
+                target_pos = (wp.x, wp.y) if wp is not None else None
                 metrics_tracker.start_episode(
                     episode_id=ep_i,
                     initial_state=env.state,
