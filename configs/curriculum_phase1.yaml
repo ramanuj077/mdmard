@@ -1,0 +1,49 @@
+# ============================================================
+# MDMARD — Phase 1 Curriculum Learning Stages Configuration
+# Progressive Task Difficulty Scheduling (Stage 13)
+# ============================================================
+
+curriculum:
+  eval_episodes: 25
+  success_rate_threshold: 0.80
+
+  stages:
+    - stage_id: 1
+      name: "Short-Range Direct Approach"
+      description: "Waypoint spawns close with wide capture radius and no obstacles."
+      goal_radius: 50.0
+      min_distance: 150.0
+      max_distance: 400.0
+      fuel_enabled: false
+      obstacles_count: 0
+      wind_speed_max: 0.0
+
+    - stage_id: 2
+      name: "Medium-Range Navigation"
+      description: "Standard spawn ranges with standard capture radius."
+      goal_radius: 30.0
+      min_distance: 300.0
+      max_distance: 800.0
+      fuel_enabled: false
+      obstacles_count: 0
+      wind_speed_max: 0.0
+
+    - stage_id: 3
+      name: "Fuel-Constrained Tactical Flight"
+      description: "Fuel enabled, requiring energy-efficient gliding and trajectory."
+      goal_radius: 30.0
+      min_distance: 300.0
+      max_distance: 800.0
+      fuel_enabled: true
+      obstacles_count: 0
+      wind_speed_max: 0.0
+
+    - stage_id: 4
+      name: "Obstacle Avoidance & Environmental Wind"
+      description: "Full complexity: static threat zones, fuel limits, and gust disturbances."
+      goal_radius: 30.0
+      min_distance: 400.0
+      max_distance: 900.0
+      fuel_enabled: true
+      obstacles_count: 3
+      wind_speed_max: 5.0

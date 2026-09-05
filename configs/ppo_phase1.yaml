@@ -1,0 +1,35 @@
+# ============================================================
+# MDMARD — Phase 1 PPO Algorithm Configuration
+# Proximal Policy Optimization for 2D Tactical Flight
+# ============================================================
+
+algorithm: "PPO"
+policy: "MlpPolicy"
+
+# --- Optimization Hyperparameters ---
+learning_rate: 0.0003
+n_steps: 2048
+batch_size: 64
+n_epochs: 10
+gamma: 0.99
+gae_lambda: 0.95
+clip_range: 0.2
+clip_range_vf: null
+normalize_advantage: true
+ent_coef: 0.01
+vf_coef: 0.5
+max_grad_norm: 0.5
+
+# --- Network Architecture ---
+net_arch:
+  pi: [128, 128]
+  vf: [128, 128]
+activation_fn: "relu"
+
+# --- Training Horizon ---
+total_timesteps: 500000
+eval_freq: 10000
+eval_episodes: 20
+save_freq: 25000
+log_interval: 5
+seed: 42

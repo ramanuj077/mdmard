@@ -261,6 +261,8 @@ class MetricsReporter:
     ) -> Optional[Path]:
         """Generate a 4-panel publication-ready learning curves plot using Matplotlib."""
         try:
+            import matplotlib
+            matplotlib.use("Agg")
             import matplotlib.pyplot as plt
         except ImportError:
             return None

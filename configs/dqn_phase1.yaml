@@ -1,0 +1,36 @@
+# ============================================================
+# MDMARD — Phase 1 DQN Algorithm Configuration
+# Deep Q-Networks for Discrete Tactical Action Selection
+# ============================================================
+
+algorithm: "DQN"
+policy: "MlpPolicy"
+
+# --- Q-Learning Hyperparameters ---
+learning_rate: 0.0001
+buffer_size: 100000
+learning_starts: 1000
+batch_size: 64
+tau: 1.0
+gamma: 0.99
+train_freq: 4
+gradient_steps: 1
+target_update_interval: 1000
+
+# --- Exploration Strategy ---
+exploration_fraction: 0.20
+exploration_initial_eps: 1.0
+exploration_final_eps: 0.05
+max_grad_norm: 10.0
+
+# --- Network Architecture ---
+net_arch: [128, 128]
+activation_fn: "relu"
+
+# --- Training Horizon ---
+total_timesteps: 500000
+eval_freq: 10000
+eval_episodes: 20
+save_freq: 25000
+log_interval: 10
+seed: 42
