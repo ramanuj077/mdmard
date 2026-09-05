@@ -186,6 +186,11 @@ class TacticalFlightEnv(gym.Env):
         self._episode_reward: float = 0.0
         self._prev_state: Optional[AircraftState] = None
 
+        # ── Renderer (lazy-initialized on first render() call) ──────────────
+        self._renderer = None
+        self._last_breakdown: dict = {}
+        self._last_info: dict = {}
+
     # ── Gymnasium API ─────────────────────────────────────────────────────────
 
     def reset(
@@ -345,6 +350,10 @@ class TacticalFlightEnv(gym.Env):
             term_reason=term_reason,
         )
 
+        # ── Cache for renderer ──────────────────────────────────────────────
+        self._last_breakdown = reward_breakdown
+        self._last_info = info
+
         # ── Render if requested ─────────────────────────────────────────────
         if self.render_mode == "human":
             self.render()
@@ -353,37 +362,46 @@ class TacticalFlightEnv(gym.Env):
 
     def render(self) -> Optional[np.ndarray]:
         """
-        Render the environment.
+        Render the environment using the Pygame tactical renderer.
 
-        Stage 3 stub -- full Pygame renderer is implemented in Stage 5.
-        Returns None for "human" mode, np.ndarray for "rgb_array".
+        Behaviour depends on render_mode:
+          None       → logs warning, returns None
+          "human"    → draws to Pygame window, returns None
+          "rgb_array"→ (future) returns pixel array
 
         Returns
         -------
         None or np.ndarray
         """
         if self.render_mode is None:
-            gym.logger.warn(
-                "render() called but render_mode=None. "
-                "Pass render_mode='human' to TacticalFlightEnv() to enable."
-            )
             return None
 
         if self.render_mode in ("human", "rgb_array"):
-            warnings.warn(
-                "Full renderer not yet implemented (Stage 5). "
-                "Returning None.",
-                stacklevel=2,
+            if self._renderer is None:
+                from rendering.renderer import Renderer
+                self._renderer = Renderer(
+                    world_width=self._world_cfg.width,
+                    world_height=self._world_cfg.height,
+                    screen_w=int(self._world_cfg.width) + Renderer.HUD_WIDTH,
+                    screen_h=int(self._world_cfg.height),
+                )
+                self._renderer.init()
+
+            self._renderer.draw(
+                state=self._state,
+                world=self._world,
+                reward_breakdown=self._last_breakdown,
+                info=self._last_info,
             )
+            self._renderer.tick()
+
         return None
 
     def close(self) -> None:
-        """
-        Clean up resources.
-
-        Stage 3 stub -- will close Pygame window in Stage 5.
-        """
-        pass
+        """Clean up Pygame renderer resources."""
+        if self._renderer is not None:
+            self._renderer.close()
+            self._renderer = None
 
     # ── Private: Observation ──────────────────────────────────────────────────
 
@@ -391,122 +409,6 @@ class TacticalFlightEnv(gym.Env):
         """Build the current observation vector."""
         steps_remaining = max(0, self._max_steps - self._step_count)
         return self._builder.build(self._state, steps_remaining)  # type: ignore[arg-type]
-
-    # ── Private: Termination ──────────────────────────────────────────────────
-
-    def _check_termination(
-        self, x: float, y: float
-    ) -> Tuple[bool, str]:
-        """
-        Check all termination conditions.
-
-        Returns
-        -------
-        terminated : bool
-        reason : str
-            Human-readable reason code for logging / info dict.
-            One of: "goal" | "oob" | "stall" | "fuel" | ""
-        """
-        # ── Goal reached ────────────────────────────────────────────────────
-        assert self._world is not None
-        if self._world.waypoint is not None:
-            if self._world.waypoint.check_capture(x, y):
-                return True, "goal"
-
-        # ── Out of bounds ────────────────────────────────────────────────────
-        if self._world.is_out_of_bounds(x, y):
-            return True, "oob"
-
-        # ── Stall ────────────────────────────────────────────────────────────
-        assert self._state is not None
-        if self._state.speed < self._phys_cfg.vel_stall:
-            self._stall_counter += 1
-            if self._stall_counter >= self._phys_cfg.stall_steps:
-                return True, "stall"
-        else:
-            self._stall_counter = 0
-
-        # ── Fuel exhausted ────────────────────────────────────────────────────
-        if self._state.fuel <= 0.0 and self._phys_cfg.fuel_burn_rate > 0:
-            return True, "fuel"
-
-        return False, ""
-
-    # ── Private: Reward ───────────────────────────────────────────────────────
-
-    def _compute_reward(
-        self,
-        x: float,
-        y: float,
-        terminated: bool,
-        term_reason: str,
-    ) -> Tuple[float, dict]:
-        """
-        Compute scalar reward and per-component breakdown.
-
-        Stage 3 implementation: potential-based approach shaping +
-        sparse goal/crash bonuses. Full weighted reward in Stage 4.
-
-        Components
-        ----------
-        approach  : dense  -- negative delta-distance to waypoint
-        goal      : sparse -- +200 on capture
-        crash     : sparse -- -100 on OOB / stall / fuel
-        alive     : dense  -- +0.1 per step survived
-        smooth    : dense  -- penalty for high pitch rate
-
-        Parameters
-        ----------
-        x, y : float
-            Current aircraft position.
-        terminated : bool
-        term_reason : str
-
-        Returns
-        -------
-        total_reward : float
-        breakdown : dict[str, float]
-        """
-        assert self._world is not None
-        assert self._state is not None
-
-        breakdown: dict[str, float] = {}
-
-        # ── Approach reward (potential-based shaping) ────────────────────────
-        # r_approach = -(d_new - d_prev) = d_prev - d_new
-        # Positive when getting closer, negative when moving away.
-        curr_dist = self._world.distance_to_waypoint(x, y)
-        r_approach = self._prev_dist - curr_dist
-        self._prev_dist = curr_dist
-        breakdown["approach"] = round(r_approach, 4)
-
-        # ── Survival bonus ────────────────────────────────────────────────────
-        r_alive = 0.1
-        breakdown["alive"] = r_alive
-
-        # ── Smooth flight (pitch rate penalty) ────────────────────────────────
-        r_smooth = -0.05 * abs(self._state.omega)
-        breakdown["smooth"] = round(r_smooth, 4)
-
-        # ── Altitude safety bonus ─────────────────────────────────────────────
-        margin = self._world.altitude_margin(y)
-        r_altitude = -0.5 * (1.0 - margin)     # 0 at center, -0.5 at floor/ceil
-        breakdown["altitude"] = round(r_altitude, 4)
-
-        # ── Sparse terminal rewards ───────────────────────────────────────────
-        r_goal  = 0.0
-        r_crash = 0.0
-        if terminated:
-            if term_reason == "goal":
-                r_goal = _DEFAULT_GOAL_BONUS
-            elif term_reason in ("oob", "stall", "fuel"):
-                r_crash = _DEFAULT_CRASH_PEN
-        breakdown["goal"]  = r_goal
-        breakdown["crash"] = r_crash
-
-        total = r_approach + r_alive + r_smooth + r_altitude + r_goal + r_crash
-
-        return float(total), breakdown
 
     # ── Private: Info dict ────────────────────────────────────────────────────
 
