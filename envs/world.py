@@ -276,15 +276,15 @@ class World:
 
     def __init__(
         self,
-        config: WorldConfig,
-        spawn: SpawnConfig,
-        wp_spawn: WaypointSpawnConfig,
+        config: Optional[WorldConfig] = None,
+        spawn: Optional[SpawnConfig] = None,
+        wp_spawn: Optional[WaypointSpawnConfig] = None,
         obstacles: Optional[List[Obstacle]] = None,
         rng: Optional[np.random.Generator] = None,
     ) -> None:
-        self.cfg = config
-        self.spawn = spawn
-        self.wp_spawn = wp_spawn
+        self.cfg = config if config is not None else WorldConfig()
+        self.spawn = spawn if spawn is not None else SpawnConfig()
+        self.wp_spawn = wp_spawn if wp_spawn is not None else WaypointSpawnConfig()
         self.obstacles: List[Obstacle] = obstacles or []
         self.rng = rng if rng is not None else np.random.default_rng()
 

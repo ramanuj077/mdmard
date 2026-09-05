@@ -54,6 +54,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+from pathlib import Path
+
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import os
 import math
 

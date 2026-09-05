@@ -460,3 +460,25 @@ class TacticalFlightEnv(gym.Env):
             "terminated": terminated,
             "truncated": truncated,
         }
+
+    # ── Properties ────────────────────────────────────────────────────────────
+
+    @property
+    def world(self) -> World:
+        """Access current World instance."""
+        return self._world
+
+    @property
+    def physics_engine(self) -> PhysicsEngine:
+        """Access PhysicsEngine instance."""
+        return self._engine
+
+    @property
+    def state(self) -> Optional[AircraftState]:
+        """Access current AircraftState."""
+        return self._state
+
+    @property
+    def last_reward_breakdown(self) -> dict:
+        """Access last computed reward breakdown."""
+        return self._last_breakdown
