@@ -379,7 +379,7 @@ class TestReward:
         env, _, _ = env_reset
         _, _, _, _, info = env.step(0)
         bd = info["reward_breakdown"]
-        expected = {"approach", "alive", "smooth", "altitude", "goal", "crash"}
+        expected = {"approach", "waypoint", "crash", "alive", "smooth", "altitude", "fuel"}
         assert set(bd.keys()) == expected
 
     def test_alive_reward_always_positive(self, env_reset):

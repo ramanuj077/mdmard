@@ -63,16 +63,17 @@ from envs.world import (
     WaypointSpawnConfig,
     Obstacle,
 )
+from envs.termination import TerminationChecker, TerminationResult
 from observation.builder import ObservationBuilder, ObservationConfig
+from reward.base import RewardContext
+from reward.composite import CompositeReward
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Environment Constants (defaults; overridden by YAML in Stage 10)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_DEFAULT_MAX_STEPS:  int   = 1000
-_DEFAULT_GOAL_BONUS: float = 200.0
-_DEFAULT_CRASH_PEN:  float = -100.0
+_DEFAULT_MAX_STEPS: int = 1000
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -165,16 +166,25 @@ class TacticalFlightEnv(gym.Env):
         # ── Sub-components (initialized properly on reset) ──────────────────
         self._engine: PhysicsEngine = PhysicsEngine(self._phys_cfg)
 
-        # World and builder are created here but require RNG from reset()
-        # They are rebuilt in reset() with the seeded RNG.
+        # Sub-components rebuilt on reset() with seeded RNG
         self._world: Optional[World] = None
         self._builder: Optional[ObservationBuilder] = None
+
+        # Termination checker (stateful -- tracks stall counter)
+        self._termination = TerminationChecker(
+            physics_config=self._phys_cfg,
+            max_steps=self._max_steps,
+        )
+
+        # Reward function (pluggable CompositeReward)
+        self._reward_fn: CompositeReward = CompositeReward.default()
 
         # ── Episode state ───────────────────────────────────────────────────
         self._state: Optional[AircraftState] = None
         self._step_count: int = 0
-        self._prev_dist: float = 0.0     # for potential-based shaping
+        self._prev_dist: float = 0.0
         self._episode_reward: float = 0.0
+        self._prev_state: Optional[AircraftState] = None
 
     # ── Gymnasium API ─────────────────────────────────────────────────────────
 
@@ -234,6 +244,11 @@ class TacticalFlightEnv(gym.Env):
         self._episode_reward = 0.0
         self._prev_dist = self._world.distance_to_waypoint(x, y)
         self._stall_counter: int = 0
+        self._prev_state = self._state.copy()
+
+        # Reset sub-components that carry episode state
+        self._termination.reset()
+        self._reward_fn.reset()
 
         # ── Build initial observation ───────────────────────────────────────
         obs = self._get_obs()
@@ -284,21 +299,37 @@ class TacticalFlightEnv(gym.Env):
             )
 
         # ── Physics step ────────────────────────────────────────────────────
+        prev_state = self._state.copy()
         self._state = self._engine.step(self._state, action_id=int(action))
         self._step_count += 1
 
         x, y = self._state.x, self._state.y
 
         # ── Termination checks ──────────────────────────────────────────────
-        terminated, term_reason = self._check_termination(x, y)
-        truncated = (self._step_count >= self._max_steps) and not terminated
+        result: TerminationResult = self._termination.check(
+            self._state, self._world, self._step_count
+        )
+        terminated = result.terminated
+        truncated  = result.truncated
+        term_reason = result.reason
 
         # ── Reward computation ──────────────────────────────────────────────
-        reward, reward_breakdown = self._compute_reward(
-            x=x, y=y,
+        curr_dist = self._world.distance_to_waypoint(x, y)
+        ctx = RewardContext(
+            state=self._state,
+            prev_state=prev_state,
+            world=self._world,
+            action=int(action),
+            prev_dist=self._prev_dist,
+            curr_dist=curr_dist,
             terminated=terminated,
             term_reason=term_reason,
+            step=self._step_count,
         )
+        reward_out = self._reward_fn.compute(ctx)
+        reward = reward_out.total
+        reward_breakdown = reward_out.breakdown
+        self._prev_dist = curr_dist
         self._episode_reward += reward
 
         # ── Observation ─────────────────────────────────────────────────────
