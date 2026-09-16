@@ -72,7 +72,7 @@ class RewardContext:
     state:       AircraftState
     prev_state:  AircraftState
     world:       World
-    action:      int
+    action:      int | np.ndarray
     prev_dist:   float
     curr_dist:   float
     terminated:  bool

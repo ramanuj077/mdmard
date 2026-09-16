@@ -69,65 +69,72 @@ from rendering.renderer import Renderer
 # Keyboard → Action Mapping
 # ─────────────────────────────────────────────────────────────────────────────
 
-def get_held_action(keys) -> int:
+def get_held_action(keys, current_omega: float) -> np.ndarray:
     """
-    Read held keys and return the matching action.
+    Read held keys and return a continuous action [throttle, elevator].
+    Uses the exact same key bindings as before, but with scaled-down 
+    elevator deflection so humans can actually control it (instead of 
+    spinning 90-180 degrees instantly).
 
     Priority (highest first):
-      E        → 3  (Thrust + Full Pitch Up)
-      Q        → 4  (Thrust + Full Pitch Down)
-      W+A      → 3  (Thrust + Pitch Up)
-      W+D      → 4  (Thrust + Pitch Down)
-      W / UP   → 0  (Thrust only)
-      A        → 1  (Pitch Up -- but with half thrust for controllability)
-      D / DOWN → 2  (Pitch Down -- with half thrust)
-      S        → 2  (Full Pitch Down, no thrust -- emergency dive)
-      nothing  → 5  (Glide)
-
-    Design note: pure pitch-only actions (action 1, 2) apply maximum elevator
-    with ZERO thrust. At 30 FPS with dt=0.05 and pitch_torque/inertia=50,
-    this rotates the aircraft ~2.5 rad/s in one second -- extremely aggressive.
-    For human control, A/D map to Thrust+Pitch (action 3/4) with softer feel.
-    Pure pitch-only (action 1/2) is kept for the RL agent but removed from
-    keyboard mapping since it's uncontrollable by humans.
+      E        → Thrust + Pitch Up
+      Q        → Thrust + Pitch Down
+      W+A      → Thrust + Pitch Up
+      W+D      → Thrust + Pitch Down
+      W / UP   → Thrust only
+      A        → Pitch Up
+      D / DOWN → Pitch Down
+      S        → Emergency dive (Full Pitch Down, no thrust)
+      nothing  → Glide
     """
     import pygame
+    import numpy as np
+
+    throttle = 0.0
+    elevator = 0.0
 
     # ── Explicit combo keys first ─────────────────────────────────────────
     if keys[pygame.K_e]:
-        return 3   # Thrust + Full Pitch Up
+        throttle, elevator = 1.0, 0.06
+    elif keys[pygame.K_q]:
+        throttle, elevator = 1.0, -0.06
+    else:
+        # ── Individual keys ───────────────────────────────────────────────────
+        thrust_key = keys[pygame.K_w] or keys[pygame.K_UP]
+        pitch_up_key = keys[pygame.K_a]
+        pitch_down_key = keys[pygame.K_d] or keys[pygame.K_DOWN]
+        dive_key = keys[pygame.K_s]
 
-    # NOTE: Q is NOT used for quit anymore (ESC only).
-    # Q = Thrust + Pitch Down (action 4)
-    if keys[pygame.K_q]:
-        return 4   # Thrust + Full Pitch Down
+        if thrust_key:
+            throttle = 1.0
 
-    # ── Individual keys ───────────────────────────────────────────────────
-    thrust     = keys[pygame.K_w] or keys[pygame.K_UP]
-    pitch_up   = keys[pygame.K_a]
-    pitch_down = keys[pygame.K_d] or keys[pygame.K_DOWN]
-    dive       = keys[pygame.K_s]
+        if dive_key:
+            throttle = 0.0
+            elevator = -0.06
+        elif pitch_up_key:
+            elevator = 0.06
+            if not thrust_key:
+                throttle = 0.5  # A/D alone give half thrust for controllability (same as old logic)
+        elif pitch_down_key:
+            elevator = -0.06
+            if not thrust_key:
+                throttle = 0.5
 
-    # Combined: thrust + pitch
-    if thrust and pitch_up:
-        return 3   # Thrust + Pitch Up
-    if thrust and pitch_down:
-        return 4   # Thrust + Pitch Down
-    if thrust:
-        return 0   # Thrust only
+    # ── Mild Flight Assist / Damping ──────────────────────────────────────
+    # If the user is not actively pitching, apply a mild counter-elevator 
+    # to slowly stop the rotation. This prevents the "spins forever" problem.
+    if elevator == 0.0 and abs(current_omega) > 0.05:
+        # Apply a counter elevator proportional to current_omega
+        # pitch_torque = 5.0, inertia = 0.1, so alpha = 50 * elevator.
+        # elevator = -0.02 * omega gives alpha = -1.0 * omega (mild damping)
+        elevator = -0.02 * current_omega
 
-    # A/D alone: map to Thrust + Pitch (actions 3/4) for controllability.
-    # Pure pitch-only (actions 1/2) bleeds speed too fast for human control.
-    if pitch_up:
-        return 3   # Thrust + Pitch Up (instead of pure pitch-only)
-    if pitch_down:
-        return 4   # Thrust + Pitch Down (instead of pure pitch-only)
+    # Map to SAC continuous action range [-1.0, 1.0]
+    # throttle_raw: -1 is 0 thrust, +1 is full thrust.
+    throttle_raw = np.clip(2.0 * throttle - 1.0, -1.0, 1.0)
+    elevator_raw = np.clip(elevator, -1.0, 1.0)
 
-    # S = emergency pure pitch down (no thrust)
-    if dive:
-        return 2   # Pitch Down only
-
-    return 5       # Glide (no keys held)
+    return np.array([throttle_raw, elevator_raw], dtype=np.float32)
 
 
 def run(args) -> None:
@@ -201,7 +208,7 @@ def run(args) -> None:
 
         # ── Physics step (only if episode not done) ────────────────────────
         if not done:
-            action = get_held_action(keys)
+            action = get_held_action(keys, env._state.omega)
             obs, reward, terminated, truncated, info = env.step(action)
             reward_breakdown = info.get("reward_breakdown", {})
             done = terminated or truncated

@@ -12,9 +12,15 @@ from metrics.tracker import (
 from metrics.reporter import (
     MetricsReporter,
 )
+from metrics.comparison import (
+    AgentResult,
+    BaselineComparison,
+)
 
 __all__ = [
     "EpisodeMetrics",
     "MetricsTracker",
     "MetricsReporter",
+    "AgentResult",
+    "BaselineComparison",
 ]

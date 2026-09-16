@@ -305,7 +305,12 @@ class TacticalFlightEnv(gym.Env):
 
         # ── Physics step ────────────────────────────────────────────────────
         prev_state = self._state.copy()
-        self._state = self._engine.step(self._state, action_id=int(action))
+        
+        import numpy as np
+        if isinstance(action, (np.ndarray, list, tuple)):
+            self._state = self._engine.step(self._state, action_continuous=np.array(action, dtype=np.float32))
+        else:
+            self._state = self._engine.step(self._state, action_id=int(action))
         self._step_count += 1
 
         x, y = self._state.x, self._state.y
@@ -324,7 +329,7 @@ class TacticalFlightEnv(gym.Env):
             state=self._state,
             prev_state=prev_state,
             world=self._world,
-            action=int(action),
+            action=action,
             prev_dist=self._prev_dist,
             curr_dist=curr_dist,
             terminated=terminated,
@@ -446,7 +451,7 @@ class TacticalFlightEnv(gym.Env):
         assert self._world is not None
 
         return {
-            "action_name": ACTION_NAMES.get(action, "none") if action is not None else "none",
+            "action_name": ACTION_NAMES.get(int(action), "none") if isinstance(action, (int, np.integer)) else "Continuous",
             "step": self._step_count,
             "episode_reward": round(self._episode_reward, 4),
             "dist_to_waypoint": round(

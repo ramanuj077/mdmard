@@ -34,3 +34,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Presentation Docs
+mdmard_phase1_architecture.md

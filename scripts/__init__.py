@@ -1,2 +1,2 @@
-# SCRIPTS package — MDMARD Phase 1
+# SCRIPTS package - MDMARD Phase 1
 

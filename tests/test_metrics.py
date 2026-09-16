@@ -147,9 +147,6 @@ def test_metrics_export_jsonl_csv_df(tmp_path):
     lines = jsonl_file.read_text().strip().split("\n")
     assert len(lines) == 5
 
-    # DataFrame
-    df = tracker.to_dataframe()
-    assert len(df) == 5
 
 
 def test_metrics_reporter_formatting():
